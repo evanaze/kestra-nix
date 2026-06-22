@@ -80,8 +80,8 @@ let
 
       package = lib.mkOption {
         type = lib.types.package;
-        default = pkgs.callPackage ../../pkgs/kestra {};
-        defaultText = lib.literalExpression "pkgs.callPackage ../../pkgs/kestra {}";
+        default = pkgs.callPackage ./kestra {};
+        defaultText = lib.literalExpression "pkgs.callPackage ./kestra {}";
         description = "Kestra package to use for the service.";
       };
 
