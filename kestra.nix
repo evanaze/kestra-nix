@@ -7,6 +7,8 @@ let
   }: let
     cfg = config.services.kestra;
 
+    defaultStateDir = "/var/lib/kestra";
+
     settingsFormat = pkgs.formats.yaml {};
 
     effectivePluginPath =
@@ -131,21 +133,34 @@ let
       };
 
       databasePasswordFile = lib.mkOption {
-        type = lib.types.path;
+        type = lib.types.externalPath;
         default = "/run/secrets/kestra/db-password";
-        description = "File containing the PostgreSQL password for the Kestra database user.";
+        description = ''
+          File containing the PostgreSQL password for the Kestra database user.
+
+          This file must be readable by the PostgreSQL service user because
+          `kestra-db-init` runs as `postgres` to set the database role password.
+        '';
       };
 
       encryptionSecretKeyFile = lib.mkOption {
-        type = lib.types.path;
+        type = lib.types.externalPath;
         default = "/run/secrets/kestra/encryption-secret-key";
-        description = "File containing the value for `kestra.encryption.secret-key`.";
+        description = ''
+          File containing the value for `kestra.encryption.secret-key`.
+
+          This file must be readable by the Kestra service user.
+        '';
       };
 
       jdbcSecretKeyFile = lib.mkOption {
-        type = lib.types.path;
+        type = lib.types.externalPath;
         default = "/run/secrets/kestra/jdbc-secret-key";
-        description = "File containing the value for `kestra.secret.jdbc.secret`.";
+        description = ''
+          File containing the value for `kestra.secret.jdbc.secret`.
+
+          This file must be readable by the Kestra service user.
+        '';
       };
 
       user = lib.mkOption {
@@ -162,8 +177,13 @@ let
 
       stateDir = lib.mkOption {
         type = lib.types.path;
-        default = "/var/lib/kestra";
-        description = "Directory for Kestra runtime state and files.";
+        default = defaultStateDir;
+        description = ''
+          Directory for Kestra runtime state and files.
+
+          The default path is managed by systemd `StateDirectory`. Custom paths
+          are created and owned for the Kestra service user with tmpfiles rules.
+        '';
       };
 
       pluginPath = lib.mkOption {
@@ -172,7 +192,8 @@ let
         description = ''
           Plugin directory passed to `--plugins` on startup.
 
-          If unset (`null`), defaults to `stateDir`/`plugins`.
+          If unset (`null`), defaults to `stateDir`/`plugins`. Custom paths
+          must be writable by the Kestra service user at startup.
         '';
       };
 
@@ -219,6 +240,11 @@ let
           home = cfg.stateDir;
         };
 
+        systemd.tmpfiles.rules = [
+          "d ${cfg.stateDir} 0750 ${cfg.user} ${cfg.group} - -"
+          "d ${effectivePluginPath} 0750 ${cfg.user} ${cfg.group} - -"
+        ];
+
         services.postgresql = {
           ensureDatabases = [cfg.databaseName];
           ensureUsers = [
@@ -242,11 +268,9 @@ let
         systemd.services.kestra-db-init = {
           after = [
             "postgresql.service"
-            "sops-secrets.target"
           ];
           requires = [
             "postgresql.service"
-            "sops-secrets.target"
           ];
           description = "Set Kestra PostgreSQL role password";
           serviceConfig = {
@@ -279,35 +303,30 @@ let
           after = [
             "network.target"
             "postgresql.service"
-            "sops-secrets.target"
             "kestra-db-init.service"
           ];
           wants = [
             "postgresql.service"
-            "sops-secrets.target"
             "kestra-db-init.service"
           ];
           requires = [
             "postgresql.service"
-            "sops-secrets.target"
             "kestra-db-init.service"
           ];
           wantedBy = ["multi-user.target"];
 
           preStart = ''
-                      mkdir -p '${dirOf cfg.runtimeConfigFile}'
-                      chmod 0700 '${dirOf cfg.runtimeConfigFile}'
+            set -euo pipefail
 
-                      mkdir -p '${cfg.stateDir}'
-                      chmod 0750 '${cfg.stateDir}'
+            install -d -m 0700 '${dirOf cfg.runtimeConfigFile}'
+            install -d -m 0750 '${effectivePluginPath}'
 
-                      mkdir -p '${effectivePluginPath}'
-                      chmod 0750 '${effectivePluginPath}'
-
-                      ${lib.getExe pkgs.python3} - '${settingsTemplate}' '${cfg.runtimeConfigFile}' '${builtins.toJSON normalizedSettings.secrets}' <<'PY'
+            ${lib.getExe pkgs.python3} - '${settingsTemplate}' '${cfg.runtimeConfigFile}' '${builtins.toJSON normalizedSettings.secrets}' <<'PY'
             from pathlib import Path
             import json
+            import os
             import sys
+            import tempfile
 
 
             template_path = Path(sys.argv[1])
@@ -316,16 +335,34 @@ let
 
             config = template_path.read_text()
             for replacement in replacements:
-              token = replacement["token"]
-              secret_path = replacement["path"]
-              value = Path(secret_path).read_text().rstrip("\n")
-              config = config.replace(token, value)
+                token = replacement["token"]
+                secret_path = replacement["path"]
+                value = Path(secret_path).read_text().rstrip("\n")
+                config = config.replace(token, value)
 
-            runtime_path.write_text(config)
+            runtime_dir = runtime_path.parent
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{runtime_path.name}.",
+                suffix=".tmp",
+                dir=runtime_dir,
+                text=True,
+            )
+            tmp_path = Path(tmp_name)
+            try:
+                with os.fdopen(fd, "w") as tmp_file:
+                    os.fchmod(tmp_file.fileno(), 0o600)
+                    tmp_file.write(config)
+                    tmp_file.flush()
+                    os.fsync(tmp_file.fileno())
+                tmp_path.replace(runtime_path)
+                os.chmod(runtime_path, 0o600)
+            except Exception:
+                try:
+                    tmp_path.unlink()
+                except FileNotFoundError:
+                    pass
+                raise
             PY
-
-                      chmod 0600 '${cfg.runtimeConfigFile}'
-                      chown ${cfg.user}:${cfg.group} '${cfg.runtimeConfigFile}'
           '';
 
           serviceConfig = {
@@ -333,18 +370,20 @@ let
             User = cfg.user;
             Group = cfg.group;
             WorkingDirectory = cfg.stateDir;
-            Environment = {
-              HOME = cfg.stateDir;
-              KESTRA_PLUGINS_PATH = effectivePluginPath;
-            };
+            Environment = [
+              "HOME=${cfg.stateDir}"
+              "KESTRA_PLUGINS_PATH=${effectivePluginPath}"
+            ];
             ExecStart = "${lib.getExe cfg.package} server standalone --config ${cfg.runtimeConfigFile} --plugins ${effectivePluginPath}";
             Restart = "always";
             RestartSec = 5;
             KillMode = "mixed";
             TimeoutStopSec = 150;
             SuccessExitStatus = "143";
-            StateDirectory = "kestra";
-            StateDirectoryMode = "0750";
+            RuntimeDirectory = "kestra";
+            RuntimeDirectoryMode = "0700";
+            StateDirectory = lib.mkIf (cfg.stateDir == defaultStateDir) "kestra";
+            StateDirectoryMode = lib.mkIf (cfg.stateDir == defaultStateDir) "0750";
             ReadWritePaths = [
               cfg.stateDir
               effectivePluginPath

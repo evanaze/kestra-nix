@@ -32,8 +32,36 @@
       };
     });
 
-    checks = forAllSystems (system: {
+    checks = forAllSystems (system: let
+      pkgs = pkgsFor system;
+      moduleCheckPackage = pkgs.writeShellScriptBin "kestra" ''
+        echo dummy kestra
+      '';
+      evalConfig = lib.nixosSystem {
+        inherit system;
+        modules = [
+          self.nixosModules.kestra
+          ({...}: {
+            services.kestra = {
+              enable = true;
+              package = moduleCheckPackage;
+              databasePasswordFile = "/run/secrets/kestra/db-password";
+              encryptionSecretKeyFile = "/run/secrets/kestra/encryption-secret-key";
+              jdbcSecretKeyFile = "/run/secrets/kestra/jdbc-secret-key";
+            };
+            system.stateVersion = "25.11";
+          })
+        ];
+      };
+    in {
       kestra-package = self.packages.${system}.kestra;
+      kestra-module-eval = pkgs.runCommand "kestra-module-eval" {
+        passAsFile = ["kestraUnitText"];
+        kestraUnitText = evalConfig.config.systemd.units."kestra.service".text;
+      } ''
+        test -s "$kestraUnitTextPath"
+        touch $out
+      '';
     });
 
     nixosModules = rec {
@@ -45,8 +73,27 @@
       system = "x86_64-linux";
       modules = [
         self.nixosModules.kestra
-        ({pkgs, ...}: {
-          services.kestra.package = self.packages.${pkgs.system}.kestra;
+        ({pkgs, ...}: let
+          system = pkgs.stdenv.hostPlatform.system;
+        in {
+          services.kestra = {
+            enable = true;
+            package = self.packages.${system}.kestra;
+            databasePasswordFile = "/run/secrets/kestra/db-password";
+            encryptionSecretKeyFile = "/run/secrets/kestra/encryption-secret-key";
+            jdbcSecretKeyFile = "/run/secrets/kestra/jdbc-secret-key";
+          };
+
+          services.postgresql.enable = true;
+
+          # Minimal dummy settings so the example is evaluable by `nix flake check`
+          # without acting as a real installation configuration.
+          fileSystems."/" = {
+            device = "tmpfs";
+            fsType = "tmpfs";
+          };
+          boot.loader.grub.enable = false;
+
           system.stateVersion = "25.11";
         })
       ];
