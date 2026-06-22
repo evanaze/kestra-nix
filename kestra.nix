@@ -130,22 +130,22 @@ let
         description = "PostgreSQL port for Kestra connections.";
       };
 
-      databasePasswordSecret = lib.mkOption {
-        type = lib.types.str;
-        default = "kestra/db-password";
-        description = "sops secret name/path for the Kestra PostgreSQL password.";
+      databasePasswordFile = lib.mkOption {
+        type = lib.types.path;
+        default = "/run/secrets/kestra/db-password";
+        description = "File containing the PostgreSQL password for the Kestra database user.";
       };
 
-      encryptionSecretKey = lib.mkOption {
-        type = lib.types.str;
-        default = "kestra/encryption-secret-key";
-        description = "sops secret name/path for `kestra.encryption.secret-key`.";
+      encryptionSecretKeyFile = lib.mkOption {
+        type = lib.types.path;
+        default = "/run/secrets/kestra/encryption-secret-key";
+        description = "File containing the value for `kestra.encryption.secret-key`.";
       };
 
-      jdbcSecretKey = lib.mkOption {
-        type = lib.types.str;
-        default = "kestra/jdbc-secret-key";
-        description = "sops secret name/path for `kestra.secret.jdbc.secret`.";
+      jdbcSecretKeyFile = lib.mkOption {
+        type = lib.types.path;
+        default = "/run/secrets/kestra/jdbc-secret-key";
+        description = "File containing the value for `kestra.secret.jdbc.secret`.";
       };
 
       user = lib.mkOption {
@@ -185,9 +185,9 @@ let
 
     config = lib.mkIf cfg.enable (
       let
-        dbPasswordSecretPath = config.sops.secrets."${cfg.databasePasswordSecret}".path;
-        encryptionSecretPath = config.sops.secrets."${cfg.encryptionSecretKey}".path;
-        jdbcSecretPath = config.sops.secrets."${cfg.jdbcSecretKey}".path;
+        dbPasswordSecretPath = cfg.databasePasswordFile;
+        encryptionSecretPath = cfg.encryptionSecretKeyFile;
+        jdbcSecretPath = cfg.jdbcSecretKeyFile;
 
         defaultSettings = {
           micronaut.server.host = "127.0.0.1";
@@ -217,24 +217,6 @@ let
           isSystemUser = true;
           group = cfg.group;
           home = cfg.stateDir;
-        };
-
-        sops.secrets = {
-          "${cfg.databasePasswordSecret}" = {
-            owner = cfg.user;
-            group = "postgres";
-            mode = "0640";
-          };
-          "${cfg.encryptionSecretKey}" = {
-            owner = cfg.user;
-            group = cfg.group;
-            mode = "0400";
-          };
-          "${cfg.jdbcSecretKey}" = {
-            owner = cfg.user;
-            group = cfg.group;
-            mode = "0400";
-          };
         };
 
         services.postgresql = {
