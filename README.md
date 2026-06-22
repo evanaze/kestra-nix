@@ -2,7 +2,7 @@
 
 Standalone Nix package and NixOS module for [Kestra](https://kestra.io/).
 
-> Replace `github:<owner>/kestra-nix` with the actual repository URL after publishing.
+> Replace `github:evanaze/kestra-nix` with the actual repository URL after publishing.
 
 This flake provides:
 
@@ -14,19 +14,19 @@ This flake provides:
 Run the packaged Kestra CLI from the flake:
 
 ```sh
-nix run github:<owner>/kestra-nix -- --help
+nix run github:evanaze/kestra-nix -- --help
 ```
 
 Build the package:
 
 ```sh
-nix build github:<owner>/kestra-nix#kestra
+nix build github:evanaze/kestra-nix#kestra
 ```
 
 For local development from a checkout:
 
 ```sh
-nix run .# -- --help
+nix run . -- --help
 nix build .#kestra
 ```
 
@@ -38,7 +38,7 @@ Add the flake as an input and import its NixOS module from your host configurati
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    kestra-nix.url = "github:<owner>/kestra-nix";
+    kestra-nix.url = "github:evanaze/kestra-nix";
   };
 
   outputs = { self, nixpkgs, kestra-nix, ... }: {
@@ -144,7 +144,7 @@ Run these checks from a checkout:
 ```sh
 nix flake check
 nix build .#kestra
-nix run .# -- --help
+nix run . -- --help
 ```
 
-`nix flake check` evaluates the package checks and module example. `nix build .#kestra` builds the Kestra package. `nix run .# -- --help` runs the packaged CLI and should print Kestra help output.
+`nix flake check` evaluates the package checks and module example. `nix build .#kestra` builds the Kestra package. `nix run . -- --help` runs the packaged CLI and should print Kestra help output.
