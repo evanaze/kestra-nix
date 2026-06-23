@@ -91,10 +91,41 @@ With `database.createLocally = false` (the default), the module assumes an exter
 }
 ```
 
-### Database options
+### HTTP server port
+
+Use `services.kestra.port` to set the generated `micronaut.server.port` value:
+
+```nix
+{
+  services.kestra = {
+    enable = true;
+    port = 8080;
+  };
+}
+```
+
+As with the other generated settings, `services.kestra.settings` can still override this explicitly:
+
+```nix
+{
+  services.kestra = {
+    enable = true;
+    port = 8080;
+    settings.micronaut.server.port = 9090;
+  };
+}
+```
+
+### Module options
+
+All `services.kestra` options exposed by the module are listed below.
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `enable` | `false` | Enable the Kestra NixOS service |
+| `package` | `pkgs.kestra` if available, otherwise this flake's packaged derivation | Kestra package used for `kestra.service` |
+| `port` | `8080` | Generated `micronaut.server.port` value for the Kestra HTTP server |
+| `settings` | `{}` | Extra Kestra YAML settings merged after generated defaults; may override generated values |
 | `database.createLocally` | `false` | When `true`, provisions a local PostgreSQL database |
 | `database.host` | `"127.0.0.1"` | PostgreSQL host |
 | `database.port` | `5432` | PostgreSQL port |
@@ -102,6 +133,13 @@ With `database.createLocally = false` (the default), the module assumes an exter
 | `database.user` | `"kestra"` | Database user |
 | `database.passwordFile` | `"/run/secrets/kestra/db-password"` | Path to the PostgreSQL password file |
 | `database.jdbcUrl` | `null` | Full JDBC URL override (replaces auto-generated URL) |
+| `encryptionSecretKeyFile` | `"/run/secrets/kestra/encryption-secret-key"` | File used for `kestra.encryption.secret-key` |
+| `jdbcSecretKeyFile` | `"/run/secrets/kestra/jdbc-secret-key"` | File used for `kestra.secret.jdbc.secret` |
+| `user` | `"kestra"` | System user that runs `kestra.service` |
+| `group` | `"kestra"` | System group that runs `kestra.service` |
+| `stateDir` | `"/var/lib/kestra"` | Directory for Kestra runtime state, storage, and default plugins path |
+| `pluginPath` | `null` | Plugin directory passed via `--plugins`; defaults to `${stateDir}/plugins` when unset |
+| `runtimeConfigFile` | `"/run/kestra/application.yaml"` | Runtime path for the generated Kestra YAML config with secrets substituted |
 
 ### Option precedence
 

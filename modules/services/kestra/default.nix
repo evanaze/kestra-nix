@@ -94,6 +94,7 @@
   # Build default Kestra settings.
   defaultSettings = {
     micronaut.server.host = "127.0.0.1";
+    micronaut.server.port = cfg.port;
 
     datasources.postgres = {
       url = resolvedJdbcUrl;
@@ -128,6 +129,17 @@ in {
       type = lib.types.package;
       default = defaultPackage;
       description = "Kestra package to use for the service.";
+    };
+
+    port = lib.mkOption {
+      type = lib.types.port;
+      default = 8080;
+      description = ''
+        TCP port for the Kestra HTTP server.
+
+        This sets the generated ``micronaut.server.port`` value unless it is
+        overridden later via ``settings``.
+      '';
     };
 
     settings = lib.mkOption {
