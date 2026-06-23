@@ -331,11 +331,15 @@ in {
     # kestra-db-init.service (only in local mode).
     systemd.services.kestra-db-init = lib.mkIf cfg.database.createLocally (
       let
+        pgHost = cfg.database.host;
+        pgPort = cfg.database.port;
         pgUser = cfg.database.user;
         pgDb = cfg.database.name;
         pgPasswordFile = cfg.database.passwordFile;
       in {
         description = "Set Kestra PostgreSQL role password and database owner";
+        after = ["postgresql.service"];
+        requires = ["postgresql.service"];
         serviceConfig = {
           Type = "oneshot";
           RemainAfterExit = true;
@@ -353,6 +357,8 @@ in {
           DB_PASSWORD="$(tr -d '\n' < "$DB_PASSWORD_PATH")"
 
           "$PSQL" --set=ON_ERROR_STOP=1 \
+            --host=${lib.escapeShellArg pgHost} \
+            --port=${lib.escapeShellArg (toString pgPort)} \
             -v "kestra_db_name=${pgDb}" \
             -v "kestra_db_user=${pgUser}" \
             -v "kestra_db_password=$DB_PASSWORD" \

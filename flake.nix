@@ -150,8 +150,12 @@
 
           # kestra-db-init.service unit must exist and be non-empty
           test -s "$unit_file"
+          grep -q "After=postgresql.service" "$unit_file"
           grep -q "LoadCredential=db-password:${localEval.config.services.kestra.database.passwordFile}" "$unit_file"
+          grep -q "Requires=postgresql.service" "$unit_file"
           grep -q '${"$"}CREDENTIALS_DIRECTORY/db-password' "$script_file"
+          grep -q -- "--host=${localEval.config.services.kestra.database.host}" "$script_file"
+          grep -q -- "--port=${toString localEval.config.services.kestra.database.port}" "$script_file"
           grep -q "hostnossl ${localEval.config.services.kestra.database.name} ${localEval.config.services.kestra.database.user} 127.0.0.1/32 scram-sha-256" "$pg_hba_file"
           grep -q "hostnossl ${localEval.config.services.kestra.database.name} ${localEval.config.services.kestra.database.user} ::1/128 scram-sha-256" "$pg_hba_file"
           touch "$out"
