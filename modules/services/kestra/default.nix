@@ -61,8 +61,7 @@
             substituteSecrets child (
               keyPath
               ++ [
-                toString
-                index
+                toString index
               ]
             )
         )
@@ -327,12 +326,9 @@ in {
       let
         pgUser = cfg.database.user;
         pgDb = cfg.database.name;
-        pgPasswordFile = cfg.database.passwordFile;
       in {
         enable = true;
-
         ensureDatabases = [pgDb];
-
         ensureUsers = [
           {
             name = pgUser;
