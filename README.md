@@ -65,10 +65,9 @@ Add the flake as an input and import its NixOS module from your host configurati
 Set `database.createLocally = true` to have the module provision a local PostgreSQL database:
 
 ```nix
-{ pkgs, ... }: {
+{
   services.kestra = {
     enable = true;
-    package = pkgs.kestra;
     database.createLocally = true;
   };
 }
@@ -81,10 +80,9 @@ The module will enable PostgreSQL, create the database and user, add authenticat
 With `database.createLocally = false` (the default), the module assumes an external PostgreSQL instance and does not configure or depend on local PostgreSQL:
 
 ```nix
-{ pkgs, ... }: {
+{
   services.kestra = {
     enable = true;
-    package = pkgs.kestra;
     database.host = "db.example.com";
     database.port = 5432;
     database.name = "kestra";
@@ -157,12 +155,39 @@ Secret values are substituted at service start time into a generated runtime con
 
   services.kestra = {
     enable = true;
-    package = pkgs.kestra;
     database.createLocally = true;  # or false for external DB
 
     database.passwordFile = config.sops.secrets."kestra/db-password".path;
     encryptionSecretKeyFile = config.sops.secrets."kestra/encryption-secret-key".path;
     jdbcSecretKeyFile = config.sops.secrets."kestra/jdbc-secret-key".path;
+  };
+}
+```
+
+If you prefer `pkgs.kestra`, add the flake overlay to your `nixpkgs` import:
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    kestra-nix.url = "github:evanaze/kestra-nix";
+  };
+
+  outputs = { self, nixpkgs, kestra-nix, ... }: {
+    nixosConfigurations.my-host = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        ({ pkgs, ... }: {
+          nixpkgs.overlays = [ kestra-nix.overlays.default ];
+
+          services.kestra = {
+            enable = true;
+            package = pkgs.kestra;
+          };
+        })
+        kestra-nix.nixosModules.kestra
+      ];
+    };
   };
 }
 ```

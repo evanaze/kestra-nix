@@ -5,6 +5,10 @@
   ...
 }: let
   cfg = config.services.kestra;
+  defaultPackage =
+    if pkgs ? kestra
+    then pkgs.kestra
+    else pkgs.callPackage ../../../kestra {};
 
   defaultStateDir = "/var/lib/kestra";
 
@@ -150,7 +154,7 @@ in {
 
     package = lib.mkOption {
       type = lib.types.package;
-      default = pkgs.kestra;
+      default = defaultPackage;
       description = "Kestra package to use for the service.";
     };
 

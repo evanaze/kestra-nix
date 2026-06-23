@@ -17,10 +17,14 @@
     forAllSystems = lib.genAttrs systems;
     pkgsFor = system: import nixpkgs {inherit system;};
   in {
+    overlays.default = final: prev: {
+      kestra = final.callPackage ./kestra {};
+    };
+
     packages = forAllSystems (
       system: let
         pkgs = pkgsFor system;
-        kestra = pkgs.callPackage ./kestra {};
+        kestra = (pkgs.extend self.overlays.default).kestra;
       in {
         inherit kestra;
         default = kestra;
@@ -57,6 +61,18 @@
         };
         externalUnitText = externalEval.config.systemd.units."kestra.service".text;
 
+        defaultPackageEval = lib.nixosSystem {
+          inherit system;
+          modules = [
+            self.nixosModules.kestra
+            ({...}: {
+              services.kestra.enable = true;
+              system.stateVersion = "25.11";
+            })
+          ];
+        };
+        defaultPackageUnitText = defaultPackageEval.config.systemd.units."kestra.service".text;
+
         # Local DB mode: explicit createLocally = true.
         localEval = lib.nixosSystem {
           inherit system;
@@ -83,6 +99,18 @@
           {
             passAsFile = ["kestraUnitText"];
             kestraUnitText = externalUnitText;
+          }
+          ''
+            test -s "$kestraUnitTextPath"
+            touch $out
+          '';
+
+        # Module eval: default package resolves without pkgs.kestra in nixpkgs.
+        kestra-module-default-package-check =
+          pkgs.runCommand "kestra-module-default-package-check"
+          {
+            passAsFile = ["kestraUnitText"];
+            kestraUnitText = defaultPackageUnitText;
           }
           ''
             test -s "$kestraUnitTextPath"
