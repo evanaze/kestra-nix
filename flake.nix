@@ -60,6 +60,7 @@
           ];
         };
         externalUnitText = externalEval.config.systemd.units."kestra.service".text;
+        externalPreStart = externalEval.config.systemd.services.kestra.preStart;
 
         defaultPackageEval = lib.nixosSystem {
           inherit system;
@@ -119,13 +120,18 @@
 
         # External DB mode: kestra.service exists, no kestra-db-init, no PostgreSQL ensureDatabases.
         kestra-external-db-check = pkgs.runCommand "kestra-external-db-check" {} ''
+          unit_file=${
+            pkgs.writeText "ext-unit" (externalEval.config.systemd.units."kestra.service".text or "MISSING")
+          }
+          pre_start_file=${pkgs.writeText "ext-pre-start" externalPreStart}
+
           # kestra.service unit must exist and have ExecStart
-          test -s ${
-            pkgs.writeText "ext-unit" (externalEval.config.systemd.units."kestra.service".text or "MISSING")
-          }
-          grep -q "ExecStart" ${
-            pkgs.writeText "ext-unit" (externalEval.config.systemd.units."kestra.service".text or "MISSING")
-          }
+          test -s "$unit_file"
+          grep -q "ExecStart" "$unit_file"
+          grep -q "/run/credentials/kestra.service/db-password" "$pre_start_file"
+          grep -q "/run/credentials/kestra.service/encryption-secret-key" "$pre_start_file"
+          grep -q "/run/credentials/kestra.service/jdbc-secret-key" "$pre_start_file"
+          ! grep -q '${"$"}{CREDENTIALS_DIRECTORY}' "$pre_start_file"
           touch "$out"
         '';
 

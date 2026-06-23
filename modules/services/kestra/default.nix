@@ -113,10 +113,10 @@
       }
     ]
   );
-  credDirPrefix = "$" + "{CREDENTIALS_DIRECTORY}/";
+  credentialPathFor = name: "/run/credentials/kestra.service/${name}";
   resolveSecretPath = path:
     if builtins.hasAttr path knownSecretPaths
-    then credDirPrefix + knownSecretPaths.${path}
+    then credentialPathFor knownSecretPaths.${path}
     else path;
 
   # Build default Kestra settings.
@@ -419,10 +419,6 @@ in {
             for replacement in replacements:
                 token = replacement["token"]
                 secret_path = replacement["path"]
-                # Resolve $CREDENTIALS_DIRECTORY for systemd-provided credentials.
-                cred_dir = os.environ.get("CREDENTIALS_DIRECTORY", "")
-                if cred_dir and secret_path.startswith("$" + "{CREDENTIALS_DIRECTORY}/"):
-                    secret_path = cred_dir + secret_path[len("$" + "{CREDENTIALS_DIRECTORY}/"):]
                 value = Path(secret_path).read_text().rstrip("\n")
                 config = config.replace(token, value)
 
