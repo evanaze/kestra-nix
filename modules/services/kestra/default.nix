@@ -337,7 +337,7 @@ in {
           RemainAfterExit = true;
           User = "postgres";
           Group = "postgres";
-          LoadCredential = ["db-password=${pgPasswordFile}"];
+          LoadCredential = ["db-password:${pgPasswordFile}"];
           StateDirectory = "kestra-db-init";
         };
         script = ''

@@ -91,6 +91,7 @@
         };
         localUnitText = localEval.config.systemd.units."kestra.service".text;
         localDbInitText = localEval.config.systemd.units."kestra-db-init.service".text or null;
+        localDbInitScript = localEval.config.systemd.services.kestra-db-init.script or "";
       in {
         kestra-package = self.packages.${system}.kestra;
 
@@ -138,12 +139,17 @@
 
         # Local DB mode: kestra-db-init.service unit text is non-empty.
         kestra-local-db-check = pkgs.runCommand "kestra-local-db-check" {} ''
-          # kestra-db-init.service unit must exist and be non-empty
-          test -s ${
+          unit_file=${
             pkgs.writeText "db-init-unit" (
               localEval.config.systemd.units."kestra-db-init.service".text or "MISSING"
             )
           }
+          script_file=${pkgs.writeText "db-init-script" localDbInitScript}
+
+          # kestra-db-init.service unit must exist and be non-empty
+          test -s "$unit_file"
+          grep -q "LoadCredential=db-password:${localEval.config.services.kestra.database.passwordFile}" "$unit_file"
+          grep -q '${"$"}CREDENTIALS_DIRECTORY/db-password' "$script_file"
           touch "$out"
         '';
       }
