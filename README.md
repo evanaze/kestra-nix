@@ -116,18 +116,6 @@ services.kestra.settings = {
 };
 ```
 
-### Migration from flat options
-
-The old flat options (`databaseName`, `databaseUser`, `databaseHost`, `databasePort`, `databasePasswordFile`) are no longer available. Migrate as follows:
-
-| Old option | New option |
-|------------|------------|
-| `databaseName` | `database.name` |
-| `databaseUser` | `database.user` |
-| `databaseHost` | `database.host` |
-| `databasePort` | `database.port` |
-| `databasePasswordFile` | `database.passwordFile` |
-
 ## Secrets
 
 The module is backend-neutral: it expects secret values to already exist as files at runtime. It does not require or configure `sops-nix` by itself.
