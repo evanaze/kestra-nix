@@ -150,6 +150,7 @@ in {
 
     package = lib.mkOption {
       type = lib.types.package;
+      default = pkgs.kestra;
       description = "Kestra package to use for the service.";
     };
 
