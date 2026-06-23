@@ -353,8 +353,8 @@ in {
             -v "kestra_db_user=${pgUser}" \
             -v "kestra_db_password=$DB_PASSWORD" \
             --dbname=postgres <<'SQL'
-            SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'kestra_db_user', :'kestra_db_password') \gexec;
-            SELECT format('ALTER DATABASE %I OWNER TO %I', :'kestra_db_name', :'kestra_db_user') \gexec;
+            SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'kestra_db_user', :'kestra_db_password') \gexec
+            SELECT format('ALTER DATABASE %I OWNER TO %I', :'kestra_db_name', :'kestra_db_user') \gexec
           SQL
         '';
       }
