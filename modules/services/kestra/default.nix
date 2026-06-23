@@ -80,18 +80,34 @@
   resolvedJdbcUrl =
     if cfg.database.jdbcUrl != null
     then cfg.database.jdbcUrl
-    else "jdbc:postgresql://" + cfg.database.host + ":" + toString cfg.database.port + "/" + cfg.database.name;
+    else
+      "jdbc:postgresql://"
+      + cfg.database.host
+      + ":"
+      + toString cfg.database.port
+      + "/"
+      + cfg.database.name;
 
   # Known secret file paths mapped to credential names.
   knownSecretPaths = lib.listToAttrs (
-    map (entry: {
+    map
+    (entry: {
       name = entry.path;
       value = entry.name;
     })
     [
-      {path = cfg.database.passwordFile; name = "db-password";}
-      {path = cfg.encryptionSecretKeyFile; name = "encryption-secret-key";}
-      {path = cfg.jdbcSecretKeyFile; name = "jdbc-secret-key";}
+      {
+        path = cfg.database.passwordFile;
+        name = "db-password";
+      }
+      {
+        path = cfg.encryptionSecretKeyFile;
+        name = "encryption-secret-key";
+      }
+      {
+        path = cfg.jdbcSecretKeyFile;
+        name = "jdbc-secret-key";
+      }
     ]
   );
   credDirPrefix = "$" + "{CREDENTIALS_DIRECTORY}/";
@@ -122,10 +138,12 @@
   effectiveSettings = lib.recursiveUpdate defaultSettings cfg.settings;
   normalizedSettings = substituteSecrets effectiveSettings [];
   # Map secret paths to credential locations for runtime resolution.
-  resolvedSecrets = map (s: {
-    token = s.token;
-    path = resolveSecretPath s.path;
-  }) normalizedSettings.secrets;
+  resolvedSecrets =
+    map (s: {
+      token = s.token;
+      path = resolveSecretPath s.path;
+    })
+    normalizedSettings.secrets;
   settingsTemplate = settingsFormat.generate "kestra-application-template.yaml" normalizedSettings.value;
 in {
   options.services.kestra = {
@@ -305,163 +323,180 @@ in {
     ];
 
     # Local PostgreSQL provisioning (gated by createLocally).
-    services.postgresql = lib.mkIf cfg.database.createLocally (let
-      pgUser = cfg.database.user;
-      pgDb = cfg.database.name;
-      pgPasswordFile = cfg.database.passwordFile;
-    in {
-      enable = true;
+    services.postgresql = lib.mkIf cfg.database.createLocally (
+      let
+        pgUser = cfg.database.user;
+        pgDb = cfg.database.name;
+        pgPasswordFile = cfg.database.passwordFile;
+      in {
+        enable = true;
 
-      ensureDatabases = [pgDb];
+        ensureDatabases = [pgDb];
 
-      ensureUsers = [
-        {
-          name = pgUser;
-          ensureDBOwnership = true;
-          ensureClauses = {
-            login = true;
-          };
-        }
-      ];
+        ensureUsers = [
+          {
+            name = pgUser;
+            ensureDBOwnership = true;
+            ensureClauses = {
+              login = true;
+            };
+          }
+        ];
 
-      authentication = lib.mkAfter ''
-        # Kestra authentication rule (TCP, localhost only)
-        host ${pgDb} ${pgUser} 127.0.0.1/32 scram-sha-256
-        host ${pgDb} ${pgUser} ::1/128 scram-sha-256
-      '';
-    });
+        authentication = lib.mkAfter ''
+          # Kestra authentication rule (TCP, localhost only)
+          host ${pgDb} ${pgUser} 127.0.0.1/32 scram-sha-256
+          host ${pgDb} ${pgUser} ::1/128 scram-sha-256
+        '';
+      }
+    );
 
     # kestra-db-init.service (only in local mode).
-    systemd.services.kestra-db-init = lib.mkIf cfg.database.createLocally (let
-      pgUser = cfg.database.user;
-      pgDb = cfg.database.name;
-      pgPasswordFile = cfg.database.passwordFile;
-    in {
-      description = "Set Kestra PostgreSQL role password and database owner";
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        User = "postgres";
-        Group = "postgres";
-        LoadCredential = ["db-password=${pgPasswordFile}"];
-        StateDirectory = "kestra-db-init";
-      };
-      script = ''
-        set -euo pipefail
-
-        PSQL="${lib.getExe' config.services.postgresql.package "psql"}"
-        DB_PASSWORD_PATH="${"\$CREDENTIALS_DIRECTORY"}/db-password"
-
-        DB_PASSWORD="$(tr -d '\n' < "$DB_PASSWORD_PATH")"
-
-        "$PSQL" --set=ON_ERROR_STOP=1 \
-          -v "kestra_db_name=${pgDb}" \
-          -v "kestra_db_user=${pgUser}" \
-          -v "kestra_db_password=$DB_PASSWORD" \
-          --dbname=postgres <<'SQL'
-          SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'kestra_db_user', :'kestra_db_password') \gexec;
-          SELECT format('ALTER DATABASE %I OWNER TO %I', :'kestra_db_name', :'kestra_db_user') \gexec;
-        SQL
-      '';
-    });
-
-    # kestra.service: depends on local DB in local mode, external in external mode.
-    systemd.services.kestra = lib.mkMerge (lib.filter (x: x != null) [
-      {
-        description = "Kestra workflow orchestrator";
-        after = ["network.target"];
-        wants = ["network.target"];
-        wantedBy = ["multi-user.target"];
-
-        preStart = ''
+    systemd.services.kestra-db-init = lib.mkIf cfg.database.createLocally (
+      let
+        pgUser = cfg.database.user;
+        pgDb = cfg.database.name;
+        pgPasswordFile = cfg.database.passwordFile;
+      in {
+        description = "Set Kestra PostgreSQL role password and database owner";
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          User = "postgres";
+          Group = "postgres";
+          LoadCredential = ["db-password=${pgPasswordFile}"];
+          StateDirectory = "kestra-db-init";
+        };
+        script = ''
           set -euo pipefail
 
-          install -d -m 0700 '${dirOf cfg.runtimeConfigFile}'
-          install -d -m 0750 '${effectivePluginPath}'
+          PSQL="${lib.getExe' config.services.postgresql.package "psql"}"
+          DB_PASSWORD_PATH="${"\$CREDENTIALS_DIRECTORY"}/db-password"
 
-          ${lib.getExe pkgs.python3} - '${settingsTemplate}' '${cfg.runtimeConfigFile}' '${builtins.toJSON resolvedSecrets}' <<'PY'
-          from pathlib import Path
-          import json
-          import os
-          import sys
-          import tempfile
+          DB_PASSWORD="$(tr -d '\n' < "$DB_PASSWORD_PATH")"
 
-
-          template_path = Path(sys.argv[1])
-          runtime_path = Path(sys.argv[2])
-          replacements = json.loads(sys.argv[3])
-
-          config = template_path.read_text()
-          for replacement in replacements:
-              token = replacement["token"]
-              secret_path = replacement["path"]
-              # Resolve $CREDENTIALS_DIRECTORY for systemd-provided credentials.
-              cred_dir = os.environ.get("CREDENTIALS_DIRECTORY", "")
-              if cred_dir and secret_path.startswith("$" + "{CREDENTIALS_DIRECTORY}/"):
-                  secret_path = cred_dir + secret_path[len("$" + "{CREDENTIALS_DIRECTORY}/"):]
-              value = Path(secret_path).read_text().rstrip("\n")
-              config = config.replace(token, value)
-
-          runtime_dir = runtime_path.parent
-          fd, tmp_name = tempfile.mkstemp(
-              prefix=f".{runtime_path.name}.",
-              suffix=".tmp",
-              dir=runtime_dir,
-              text=True,
-          )
-          tmp_path = Path(tmp_name)
-          try:
-              with os.fdopen(fd, "w") as tmp_file:
-                  os.fchmod(tmp_file.fileno(), 0o600)
-                  tmp_file.write(config)
-                  tmp_file.flush()
-                  os.fsync(tmp_file.fileno())
-              tmp_path.replace(runtime_path)
-              os.chmod(runtime_path, 0o600)
-          except Exception:
-              try:
-                  tmp_path.unlink()
-              except FileNotFoundError:
-                  pass
-              raise
-          PY
+          "$PSQL" --set=ON_ERROR_STOP=1 \
+            -v "kestra_db_name=${pgDb}" \
+            -v "kestra_db_user=${pgUser}" \
+            -v "kestra_db_password=$DB_PASSWORD" \
+            --dbname=postgres <<'SQL'
+            SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', :'kestra_db_user', :'kestra_db_password') \gexec;
+            SELECT format('ALTER DATABASE %I OWNER TO %I', :'kestra_db_name', :'kestra_db_user') \gexec;
+          SQL
         '';
-
-        serviceConfig = {
-          Type = "simple";
-          User = cfg.user;
-          Group = cfg.group;
-          WorkingDirectory = cfg.stateDir;
-          Environment = [
-            "HOME=${cfg.stateDir}"
-            "KESTRA_PLUGINS_PATH=${effectivePluginPath}"
-          ];
-          LoadCredential = [
-            "db-password=${cfg.database.passwordFile}"
-            "encryption-secret-key=${cfg.encryptionSecretKeyFile}"
-            "jdbc-secret-key=${cfg.jdbcSecretKeyFile}"
-          ];
-          ExecStart = "${lib.getExe cfg.package} server standalone --config ${cfg.runtimeConfigFile} --plugins ${effectivePluginPath}";
-          Restart = "always";
-          RestartSec = 5;
-          KillMode = "mixed";
-          TimeoutStopSec = 150;
-          SuccessExitStatus = "143";
-          RuntimeDirectory = "kestra";
-          RuntimeDirectoryMode = "0700";
-          StateDirectory = lib.mkIf (cfg.stateDir == defaultStateDir) "kestra";
-          StateDirectoryMode = lib.mkIf (cfg.stateDir == defaultStateDir) "0750";
-          ReadWritePaths = [
-            cfg.stateDir
-            effectivePluginPath
-          ];
-        };
       }
-      (lib.mkIf cfg.database.createLocally {
-        after = ["network.target" "postgresql.service" "kestra-db-init.service"];
-        wants = ["network.target" "postgresql.service" "kestra-db-init.service"];
-        requires = ["postgresql.service" "kestra-db-init.service"];
-      })
-    ]);
+    );
+
+    # kestra.service: depends on local DB in local mode, external in external mode.
+    systemd.services.kestra = lib.mkMerge (
+      lib.filter (x: x != null) [
+        {
+          description = "Kestra workflow orchestrator";
+          after = ["network.target"];
+          wants = ["network.target"];
+          wantedBy = ["multi-user.target"];
+
+          preStart = ''
+            set -euo pipefail
+
+            install -d -m 0700 '${dirOf cfg.runtimeConfigFile}'
+            install -d -m 0750 '${effectivePluginPath}'
+
+            ${lib.getExe pkgs.python3} - '${settingsTemplate}' '${cfg.runtimeConfigFile}' '${builtins.toJSON resolvedSecrets}' <<'PY'
+            from pathlib import Path
+            import json
+            import os
+            import sys
+            import tempfile
+
+
+            template_path = Path(sys.argv[1])
+            runtime_path = Path(sys.argv[2])
+            replacements = json.loads(sys.argv[3])
+
+            config = template_path.read_text()
+            for replacement in replacements:
+                token = replacement["token"]
+                secret_path = replacement["path"]
+                # Resolve $CREDENTIALS_DIRECTORY for systemd-provided credentials.
+                cred_dir = os.environ.get("CREDENTIALS_DIRECTORY", "")
+                if cred_dir and secret_path.startswith("$" + "{CREDENTIALS_DIRECTORY}/"):
+                    secret_path = cred_dir + secret_path[len("$" + "{CREDENTIALS_DIRECTORY}/"):]
+                value = Path(secret_path).read_text().rstrip("\n")
+                config = config.replace(token, value)
+
+            runtime_dir = runtime_path.parent
+            fd, tmp_name = tempfile.mkstemp(
+                prefix=f".{runtime_path.name}.",
+                suffix=".tmp",
+                dir=runtime_dir,
+                text=True,
+            )
+            tmp_path = Path(tmp_name)
+            try:
+                with os.fdopen(fd, "w") as tmp_file:
+                    os.fchmod(tmp_file.fileno(), 0o600)
+                    tmp_file.write(config)
+                    tmp_file.flush()
+                    os.fsync(tmp_file.fileno())
+                tmp_path.replace(runtime_path)
+                os.chmod(runtime_path, 0o600)
+            except Exception:
+                try:
+                    tmp_path.unlink()
+                except FileNotFoundError:
+                    pass
+                raise
+            PY
+          '';
+
+          serviceConfig = {
+            Type = "simple";
+            User = cfg.user;
+            Group = cfg.group;
+            WorkingDirectory = cfg.stateDir;
+            Environment = [
+              "HOME=${cfg.stateDir}"
+              "KESTRA_PLUGINS_PATH=${effectivePluginPath}"
+            ];
+            LoadCredential = [
+              "db-password=${cfg.database.passwordFile}"
+              "encryption-secret-key=${cfg.encryptionSecretKeyFile}"
+              "jdbc-secret-key=${cfg.jdbcSecretKeyFile}"
+            ];
+            ExecStart = "${lib.getExe cfg.package} server standalone --config ${cfg.runtimeConfigFile} --plugins ${effectivePluginPath}";
+            Restart = "always";
+            RestartSec = 5;
+            KillMode = "mixed";
+            TimeoutStopSec = 150;
+            SuccessExitStatus = "143";
+            RuntimeDirectory = "kestra";
+            RuntimeDirectoryMode = "0700";
+            StateDirectory = lib.mkIf (cfg.stateDir == defaultStateDir) "kestra";
+            StateDirectoryMode = lib.mkIf (cfg.stateDir == defaultStateDir) "0750";
+            ReadWritePaths = [
+              cfg.stateDir
+              effectivePluginPath
+            ];
+          };
+        }
+        (lib.mkIf cfg.database.createLocally {
+          after = [
+            "network.target"
+            "postgresql.service"
+            "kestra-db-init.service"
+          ];
+          wants = [
+            "network.target"
+            "postgresql.service"
+            "kestra-db-init.service"
+          ];
+          requires = [
+            "postgresql.service"
+            "kestra-db-init.service"
+          ];
+        })
+      ]
+    );
   };
 }

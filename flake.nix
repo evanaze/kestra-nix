@@ -17,13 +17,15 @@
     forAllSystems = lib.genAttrs systems;
     pkgsFor = system: import nixpkgs {inherit system;};
   in {
-    packages = forAllSystems (system: let
-      pkgs = pkgsFor system;
-      kestra = pkgs.callPackage ./kestra {};
-    in {
-      inherit kestra;
-      default = kestra;
-    });
+    packages = forAllSystems (
+      system: let
+        pkgs = pkgsFor system;
+        kestra = pkgs.callPackage ./kestra {};
+      in {
+        inherit kestra;
+        default = kestra;
+      }
+    );
 
     apps = forAllSystems (system: {
       default = {
@@ -32,72 +34,85 @@
       };
     });
 
-    checks = forAllSystems (system: let
-      pkgs = pkgsFor system;
-      moduleCheckPackage = pkgs.writeShellScriptBin "kestra" ''
-        echo dummy kestra
-      '';
+    checks = forAllSystems (
+      system: let
+        pkgs = pkgsFor system;
+        moduleCheckPackage = pkgs.writeShellScriptBin "kestra" ''
+          echo dummy kestra
+        '';
 
-      # External DB mode: default (createLocally = false).
-      externalEval = lib.nixosSystem {
-        inherit system;
-        modules = [
-          self.nixosModules.kestra
-          ({...}: {
-            services.kestra = {
-              enable = true;
-              package = moduleCheckPackage;
-            };
-            system.stateVersion = "25.11";
-          })
-        ];
-      };
-      externalUnitText = externalEval.config.systemd.units."kestra.service".text;
+        # External DB mode: default (createLocally = false).
+        externalEval = lib.nixosSystem {
+          inherit system;
+          modules = [
+            self.nixosModules.kestra
+            ({...}: {
+              services.kestra = {
+                enable = true;
+                package = moduleCheckPackage;
+              };
+              system.stateVersion = "25.11";
+            })
+          ];
+        };
+        externalUnitText = externalEval.config.systemd.units."kestra.service".text;
 
-      # Local DB mode: explicit createLocally = true.
-      localEval = lib.nixosSystem {
-        inherit system;
-        modules = [
-          self.nixosModules.kestra
-          ({...}: {
-            services.kestra = {
-              enable = true;
-              package = moduleCheckPackage;
-              database.createLocally = true;
-            };
-            system.stateVersion = "25.11";
-          })
-        ];
-      };
-      localUnitText = localEval.config.systemd.units."kestra.service".text;
-      localDbInitText = localEval.config.systemd.units."kestra-db-init.service".text or null;
-    in {
-      kestra-package = self.packages.${system}.kestra;
+        # Local DB mode: explicit createLocally = true.
+        localEval = lib.nixosSystem {
+          inherit system;
+          modules = [
+            self.nixosModules.kestra
+            ({...}: {
+              services.kestra = {
+                enable = true;
+                package = moduleCheckPackage;
+                database.createLocally = true;
+              };
+              system.stateVersion = "25.11";
+            })
+          ];
+        };
+        localUnitText = localEval.config.systemd.units."kestra.service".text;
+        localDbInitText = localEval.config.systemd.units."kestra-db-init.service".text or null;
+      in {
+        kestra-package = self.packages.${system}.kestra;
 
-      # Module eval: kestra.service unit text is non-empty.
-      kestra-module-eval = pkgs.runCommand "kestra-module-eval" {
-        passAsFile = ["kestraUnitText"];
-        kestraUnitText = externalUnitText;
-      } ''
-        test -s "$kestraUnitTextPath"
-        touch $out
-      '';
+        # Module eval: kestra.service unit text is non-empty.
+        kestra-module-eval =
+          pkgs.runCommand "kestra-module-eval"
+          {
+            passAsFile = ["kestraUnitText"];
+            kestraUnitText = externalUnitText;
+          }
+          ''
+            test -s "$kestraUnitTextPath"
+            touch $out
+          '';
 
-      # External DB mode: kestra.service exists, no kestra-db-init, no PostgreSQL ensureDatabases.
-      kestra-external-db-check = pkgs.runCommand "kestra-external-db-check" {} ''
-        # kestra.service unit must exist and have ExecStart
-        test -s ${pkgs.writeText "ext-unit" (externalEval.config.systemd.units."kestra.service".text or "MISSING")}
-        grep -q "ExecStart" ${pkgs.writeText "ext-unit" (externalEval.config.systemd.units."kestra.service".text or "MISSING")}
-        touch "$out"
-      '';
+        # External DB mode: kestra.service exists, no kestra-db-init, no PostgreSQL ensureDatabases.
+        kestra-external-db-check = pkgs.runCommand "kestra-external-db-check" {} ''
+          # kestra.service unit must exist and have ExecStart
+          test -s ${
+            pkgs.writeText "ext-unit" (externalEval.config.systemd.units."kestra.service".text or "MISSING")
+          }
+          grep -q "ExecStart" ${
+            pkgs.writeText "ext-unit" (externalEval.config.systemd.units."kestra.service".text or "MISSING")
+          }
+          touch "$out"
+        '';
 
-      # Local DB mode: kestra-db-init.service unit text is non-empty.
-      kestra-local-db-check = pkgs.runCommand "kestra-local-db-check" {} ''
-        # kestra-db-init.service unit must exist and be non-empty
-        test -s ${pkgs.writeText "db-init-unit" (localEval.config.systemd.units."kestra-db-init.service".text or "MISSING")}
-        touch "$out"
-      '';
-    });
+        # Local DB mode: kestra-db-init.service unit text is non-empty.
+        kestra-local-db-check = pkgs.runCommand "kestra-local-db-check" {} ''
+          # kestra-db-init.service unit must exist and be non-empty
+          test -s ${
+            pkgs.writeText "db-init-unit" (
+              localEval.config.systemd.units."kestra-db-init.service".text or "MISSING"
+            )
+          }
+          touch "$out"
+        '';
+      }
+    );
 
     nixosModules = rec {
       kestra = import ./modules/services/kestra;
@@ -108,25 +123,27 @@
       system = "x86_64-linux";
       modules = [
         self.nixosModules.kestra
-        ({pkgs, ...}: let
-          system = pkgs.stdenv.hostPlatform.system;
-        in {
-          services.kestra = {
-            enable = true;
-            package = self.packages.${system}.kestra;
-            database.createLocally = true;
-          };
+        (
+          {pkgs, ...}: let
+            system = pkgs.stdenv.hostPlatform.system;
+          in {
+            services.kestra = {
+              enable = true;
+              package = self.packages.${system}.kestra;
+              database.createLocally = true;
+            };
 
-          # Minimal dummy settings so the example is evaluable by `nix flake check`
-          # without acting as a real installation configuration.
-          fileSystems."/" = {
-            device = "tmpfs";
-            fsType = "tmpfs";
-          };
-          boot.loader.grub.enable = false;
+            # Minimal dummy settings so the example is evaluable by `nix flake check`
+            # without acting as a real installation configuration.
+            fileSystems."/" = {
+              device = "tmpfs";
+              fsType = "tmpfs";
+            };
+            boot.loader.grub.enable = false;
 
-          system.stateVersion = "25.11";
-        })
+            system.stateVersion = "25.11";
+          }
+        )
       ];
     };
   };
