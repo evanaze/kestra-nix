@@ -1,10 +1,9 @@
-let
-  module = {
-    config,
-    lib,
-    pkgs,
-    ...
-  }: let
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}: let
     cfg = config.services.kestra;
 
     defaultStateDir = "/var/lib/kestra";
@@ -392,9 +391,4 @@ let
         };
       }
     );
-  };
-in {
-  flake.modules.nixos = {
-    servicesKestra = module;
-  };
 }

@@ -65,7 +65,7 @@
     });
 
     nixosModules = rec {
-      kestra = (import ./kestra.nix).flake.modules.nixos.servicesKestra;
+      kestra = import ./kestra.nix;
       default = kestra;
     };
 
