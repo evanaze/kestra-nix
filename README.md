@@ -46,16 +46,12 @@ Add the flake as an input and import its NixOS module from your host configurati
       system = "x86_64-linux";
       modules = [
         kestra-nix.nixosModules.kestra
-        ({ config, pkgs, ... }: {
-          services.postgresql.enable = true;
-
+        ({ pkgs, ... }: {
           services.kestra = {
             enable = true;
             package = kestra-nix.packages.${pkgs.stdenv.hostPlatform.system}.kestra;
 
-            databasePasswordFile = "/run/secrets/kestra/db-password";
-            encryptionSecretKeyFile = "/run/secrets/kestra/encryption-secret-key";
-            jdbcSecretKeyFile = "/run/secrets/kestra/jdbc-secret-key";
+            # Choose local or external PostgreSQL mode below.
           };
         })
       ];
@@ -64,16 +60,73 @@ Add the flake as an input and import its NixOS module from your host configurati
 }
 ```
 
-The module manages:
+### Local PostgreSQL mode
 
-- `users.users.kestra`;
-- `users.groups.kestra`;
-- PostgreSQL database/user ownership via `services.postgresql.ensureDatabases` and `services.postgresql.ensureUsers`;
-- `kestra-db-init.service`, which sets the PostgreSQL role password and database owner;
-- `kestra.service`, which runs `kestra server standalone`;
-- runtime config generation at `/run/kestra/application.yaml` by default.
+Set `database.createLocally = true` to have the module provision a local PostgreSQL database:
 
-The flake also contains `nixosConfigurations.example`, but it is evaluation-only. It includes dummy tmpfs/grub settings so `nix flake check` can evaluate a full NixOS system. Do not deploy that example directly; copy the relevant `services.kestra` options into a real host configuration instead.
+```nix
+{ pkgs, ... }: {
+  services.kestra = {
+    enable = true;
+    package = pkgs.kestra;
+    database.createLocally = true;
+  };
+}
+```
+
+The module will enable PostgreSQL, create the database and user, add authentication rules, and define `kestra-db-init.service`.
+
+### External PostgreSQL mode
+
+With `database.createLocally = false` (the default), the module assumes an external PostgreSQL instance and does not configure or depend on local PostgreSQL:
+
+```nix
+{ pkgs, ... }: {
+  services.kestra = {
+    enable = true;
+    package = pkgs.kestra;
+    database.host = "db.example.com";
+    database.port = 5432;
+    database.name = "kestra";
+    database.user = "kestra";
+  };
+}
+```
+
+### Database options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `database.createLocally` | `false` | When `true`, provisions a local PostgreSQL database |
+| `database.host` | `"127.0.0.1"` | PostgreSQL host |
+| `database.port` | `5432` | PostgreSQL port |
+| `database.name` | `"kestra"` | Database name |
+| `database.user` | `"kestra"` | Database user |
+| `database.passwordFile` | `"/run/secrets/kestra/db-password"` | Path to the PostgreSQL password file |
+| `database.jdbcUrl` | `null` | Full JDBC URL override (replaces auto-generated URL) |
+
+### Option precedence
+
+Generated Kestra defaults (from `database.*` options) are merged first. The `services.kestra.settings` option is merged last and can intentionally override any generated value:
+
+```nix
+services.kestra.settings = {
+  micronaut.server.host = "127.0.0.1";
+  # ... custom Kestra YAML settings
+};
+```
+
+### Migration from flat options
+
+The old flat options (`databaseName`, `databaseUser`, `databaseHost`, `databasePort`, `databasePasswordFile`) are no longer available. Migrate as follows:
+
+| Old option | New option |
+|------------|------------|
+| `databaseName` | `database.name` |
+| `databaseUser` | `database.user` |
+| `databaseHost` | `database.host` |
+| `databasePort` | `database.port` |
+| `databasePasswordFile` | `database.passwordFile` |
 
 ## Secrets
 
@@ -81,11 +134,11 @@ The module is backend-neutral: it expects secret values to already exist as file
 
 Secret file options:
 
-- `services.kestra.databasePasswordFile`: PostgreSQL password for the Kestra database user. This file must be readable by both the PostgreSQL service user (`postgres`), because `kestra-db-init.service` runs as `postgres`, and the Kestra service user, because `kestra.service` reads it during `preStart` to generate runtime configuration.
-- `services.kestra.encryptionSecretKeyFile`: value for `kestra.encryption.secret-key`. This file must be readable by the Kestra service user.
-- `services.kestra.jdbcSecretKeyFile`: value for `kestra.secret.jdbc.secret`. This file must be readable by the Kestra service user.
+- `services.kestra.database.passwordFile`: PostgreSQL password for the Kestra database user. The module provides this file to both `kestra-db-init.service` (as `postgres`) and `kestra.service` via systemd `LoadCredential`, so the file only needs to be readable by the user who manages it (e.g. `root`).
+- `services.kestra.encryptionSecretKeyFile`: value for `kestra.encryption.secret-key`. Readable by the Kestra service user.
+- `services.kestra.jdbcSecretKeyFile`: value for `kestra.secret.jdbc.secret`. Readable by the Kestra service user.
 
-Additional secret leaves can be supplied anywhere under `services.kestra.settings` using `{ _secret = "/path/to/file"; }`, for example:
+Additional secret leaves can be supplied anywhere under `services.kestra.settings` using `{ _secret = "/path/to/file"; }`:
 
 ```nix
 services.kestra.settings = {
@@ -93,49 +146,52 @@ services.kestra.settings = {
 };
 ```
 
-Those arbitrary `settings.*._secret` paths are read during `kestra.service` `preStart` as the Kestra service user, so they must also be readable by that user.
+Secret values are substituted at service start time into a generated runtime config at `/run/kestra/application.yaml` (mode `0600`). They are never stored in the Nix store.
 
 ### Example with sops-nix
 
-One way to provide the expected files is with `sops-nix`:
-
 ```nix
 { config, ... }: {
-  # The database password is read by both kestra-db-init.service
-  # (as postgres) and kestra.service preStart (as kestra). The
-  # module creates the kestra group; adding postgres to it lets a
-  # group-readable secret be shared by both service users.
-  users.users.postgres.extraGroups = [ "kestra" ];
-
   sops.secrets = {
     "kestra/db-password" = {
-      owner = "kestra";
-      group = "kestra";
-      mode = "0440";
-    };
-
-    "kestra/encryption-secret-key" = {
-      owner = "kestra";
-      group = "kestra";
+      owner = "root";
       mode = "0400";
     };
-
+    "kestra/encryption-secret-key" = {
+      owner = "root";
+      mode = "0400";
+    };
     "kestra/jdbc-secret-key" = {
-      owner = "kestra";
-      group = "kestra";
+      owner = "root";
       mode = "0400";
     };
   };
 
   services.kestra = {
-    databasePasswordFile = config.sops.secrets."kestra/db-password".path;
+    enable = true;
+    package = pkgs.kestra;
+    database.createLocally = true;  # or false for external DB
+
+    database.passwordFile = config.sops.secrets."kestra/db-password".path;
     encryptionSecretKeyFile = config.sops.secrets."kestra/encryption-secret-key".path;
     jdbcSecretKeyFile = config.sops.secrets."kestra/jdbc-secret-key".path;
   };
 }
 ```
 
-If your secret backend creates files with different ownership, permissions, or paths, set the three `*File` options to those paths and ensure the readability requirements above are satisfied.
+If your secret backend creates files with different ownership, permissions, or paths, set the three `*File` options to those paths accordingly.
+
+## Repository layout
+
+```
+flake.nix                  # Flake definition: packages, apps, checks, modules, example
+kestra/default.nix         # Kestra package derivation (unchanged)
+modules/services/kestra/   # NixOS module implementation
+  default.nix
+examples/                  # (optional future examples)
+checks/                    # (optional future check helpers)
+README.md                  # This file
+```
 
 ## Validation
 
@@ -147,4 +203,4 @@ nix build .#kestra
 nix run . -- --help
 ```
 
-`nix flake check` evaluates the package checks and module example. `nix build .#kestra` builds the Kestra package. `nix run . -- --help` runs the packaged CLI and should print Kestra help output.
+`nix flake check` evaluates the package checks, module local/external DB mode checks, and the example NixOS configuration. `nix build .#kestra` builds the Kestra package. `nix run . -- --help` runs the packaged CLI and should print Kestra help output.
