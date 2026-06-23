@@ -92,6 +92,7 @@
         localUnitText = localEval.config.systemd.units."kestra.service".text;
         localDbInitText = localEval.config.systemd.units."kestra-db-init.service".text or null;
         localDbInitScript = localEval.config.systemd.services.kestra-db-init.script or "";
+        localPgAuth = localEval.config.services.postgresql.authentication or "";
       in {
         kestra-package = self.packages.${system}.kestra;
 
@@ -145,11 +146,14 @@
             )
           }
           script_file=${pkgs.writeText "db-init-script" localDbInitScript}
+          pg_hba_file=${pkgs.writeText "local-pg-auth" localPgAuth}
 
           # kestra-db-init.service unit must exist and be non-empty
           test -s "$unit_file"
           grep -q "LoadCredential=db-password:${localEval.config.services.kestra.database.passwordFile}" "$unit_file"
           grep -q '${"$"}CREDENTIALS_DIRECTORY/db-password' "$script_file"
+          grep -q "hostnossl ${localEval.config.services.kestra.database.name} ${localEval.config.services.kestra.database.user} 127.0.0.1/32 scram-sha-256" "$pg_hba_file"
+          grep -q "hostnossl ${localEval.config.services.kestra.database.name} ${localEval.config.services.kestra.database.user} ::1/128 scram-sha-256" "$pg_hba_file"
           touch "$out"
         '';
       }

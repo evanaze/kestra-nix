@@ -316,8 +316,12 @@ in {
           }
         ];
 
-        authentication = lib.mkAfter ''
-          # Kestra authentication rule (TCP, localhost only)
+        authentication = lib.mkBefore ''
+          # Kestra authentication rules (TCP, localhost only).
+          # Put the non-SSL entries first so the default JDBC localhost
+          # connection always has an explicit pg_hba match.
+          hostnossl ${pgDb} ${pgUser} 127.0.0.1/32 scram-sha-256
+          hostnossl ${pgDb} ${pgUser} ::1/128 scram-sha-256
           host ${pgDb} ${pgUser} 127.0.0.1/32 scram-sha-256
           host ${pgDb} ${pgUser} ::1/128 scram-sha-256
         '';
