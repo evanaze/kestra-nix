@@ -120,7 +120,7 @@ The module is backend-neutral: it expects secret values to already exist as file
 
 Secret file options:
 
-- `services.kestra.database.passwordFile`: PostgreSQL password for the Kestra database user. The module provides this file to both `kestra-db-init.service` (as `postgres`) and `kestra.service` via systemd `LoadCredential`, so the file only needs to be readable by the user who manages it (e.g. `root`).
+- `services.kestra.database.passwordFile`: PostgreSQL password for the Kestra database user. `kestra-db-init.service` receives it via systemd `LoadCredential`, but `kestra.service` reads the configured file directly during `preStart`, so it must be readable by the Kestra service user.
 - `services.kestra.encryptionSecretKeyFile`: value for `kestra.encryption.secret-key`. Readable by the Kestra service user.
 - `services.kestra.jdbcSecretKeyFile`: value for `kestra.secret.jdbc.secret`. Readable by the Kestra service user.
 

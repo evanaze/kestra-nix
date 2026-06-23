@@ -91,34 +91,6 @@
       + "/"
       + cfg.database.name;
 
-  # Known secret file paths mapped to credential names.
-  knownSecretPaths = lib.listToAttrs (
-    map
-    (entry: {
-      name = entry.path;
-      value = entry.name;
-    })
-    [
-      {
-        path = cfg.database.passwordFile;
-        name = "db-password";
-      }
-      {
-        path = cfg.encryptionSecretKeyFile;
-        name = "encryption-secret-key";
-      }
-      {
-        path = cfg.jdbcSecretKeyFile;
-        name = "jdbc-secret-key";
-      }
-    ]
-  );
-  credentialPathFor = name: "/run/credentials/kestra.service/${name}";
-  resolveSecretPath = path:
-    if builtins.hasAttr path knownSecretPaths
-    then credentialPathFor knownSecretPaths.${path}
-    else path;
-
   # Build default Kestra settings.
   defaultSettings = {
     micronaut.server.host = "127.0.0.1";
@@ -144,7 +116,7 @@
   resolvedSecrets =
     map (s: {
       token = s.token;
-      path = resolveSecretPath s.path;
+      path = s.path;
     })
     normalizedSettings.secrets;
   settingsTemplate = settingsFormat.generate "kestra-application-template.yaml" normalizedSettings.value;
@@ -232,11 +204,11 @@ in {
           File containing the PostgreSQL password for the Kestra database user.
 
           The module provides this file to both ``kestra-db-init.service``
-          (as ``postgres``) and ``kestra.service`` via systemd
-          ``LoadCredential``, so the file only needs to be readable by the
-          user who manages it (e.g. the ``root`` user who places it via
-          ``sops-nix`` or manually).  Systemd distributes the credential
-          securely to each service at runtime.
+          (as ``postgres``) via systemd ``LoadCredential`` and to
+          ``kestra.service`` by reading the configured path directly during
+          ``preStart``.  The file therefore must be readable by the Kestra
+          service user (``${cfg.user}``) as well as by whatever user manages
+          database initialization.
         '';
       };
 
@@ -455,11 +427,6 @@ in {
             Environment = [
               "HOME=${cfg.stateDir}"
               "KESTRA_PLUGINS_PATH=${effectivePluginPath}"
-            ];
-            LoadCredential = [
-              "db-password=${cfg.database.passwordFile}"
-              "encryption-secret-key=${cfg.encryptionSecretKeyFile}"
-              "jdbc-secret-key=${cfg.jdbcSecretKeyFile}"
             ];
             ExecStart = "${lib.getExe cfg.package} server standalone --config ${cfg.runtimeConfigFile} --plugins ${effectivePluginPath}";
             Restart = "always";

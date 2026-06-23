@@ -128,9 +128,10 @@
           # kestra.service unit must exist and have ExecStart
           test -s "$unit_file"
           grep -q "ExecStart" "$unit_file"
-          grep -q "/run/credentials/kestra.service/db-password" "$pre_start_file"
-          grep -q "/run/credentials/kestra.service/encryption-secret-key" "$pre_start_file"
-          grep -q "/run/credentials/kestra.service/jdbc-secret-key" "$pre_start_file"
+          grep -q "${externalEval.config.services.kestra.database.passwordFile}" "$pre_start_file"
+          grep -q "${externalEval.config.services.kestra.encryptionSecretKeyFile}" "$pre_start_file"
+          grep -q "${externalEval.config.services.kestra.jdbcSecretKeyFile}" "$pre_start_file"
+          ! grep -q "LoadCredential" "$unit_file"
           ! grep -q '${"$"}{CREDENTIALS_DIRECTORY}' "$pre_start_file"
           touch "$out"
         '';
